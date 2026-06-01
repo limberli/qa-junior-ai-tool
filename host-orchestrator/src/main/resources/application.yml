@@ -1,0 +1,80 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: host-orchestrator
+
+  # Profile-specific datasource is in application-{dev|prod}.yml
+  jpa:
+    open-in-view: false
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_MODEL:qwen2.5:7b}
+          temperature: 0.0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: host-orchestrator
+    version: 1.0.0
+    description: A2A Orchestrator for QA analysis pipeline
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui
+
+agent:
+  public-url: ${AGENT_PUBLIC_URL:http://localhost:8080}
+
+agents:
+  tester:
+    url: ${AGENTS_TESTER_URL:http://localhost:8081}
+  analyst:
+    url: ${AGENTS_ANALYST_URL:http://localhost:8082}
+
+resilience4j:
+  timelimiter:
+    instances:
+      agentCall:
+        # Local LLM (qwen2.5:7b / phi3:mini) on CPU can take 2-5 minutes per request
+        timeout-duration: 300s
+        cancel-running-future: true
+  retry:
+    instances:
+      agentCall:
+        # Only 1 retry for LLM — retrying a slow model just doubles the wait time
+        max-attempts: 2
+        wait-duration: 2s
+        retry-exceptions:
+          - limberli.common.exception.AgentUnavailableException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - limberli.common.exception.LLMTimeoutException
+  circuitbreaker:
+    instances:
+      agentCall:
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 270s
+        slow-call-rate-threshold: 100
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 2
+        sliding-window-size: 6
+        register-health-indicator: true

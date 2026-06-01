@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+
+  # ── 1. Ollama LLM runtime ───────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── 2. Model pull (one-shot init container) ─────────────────────────────
+  # Pulls qwen2.5:7b into the shared ollama_data volume before any agent starts.
+  # Uses condition: service_completed_successfully so agents wait for the pull.
+  ollama-model-init:
+    image: curlimages/curl:latest
+    container_name: ollama-model-init
+    platform: linux/amd64
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "curl -sf -X POST http://ollama:11434/api/pull
+        -d '{\"name\":\"qwen2.5:7b\",\"stream\":false}'
+        --max-time 600"
+    restart: "no"
+
+  # ── 3. Tester Agent ─────────────────────────────────────────────────────
+  tester-agent:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: tester-agent/Dockerfile
+    container_name: tester-agent
+    ports:
+      - "8081:8081"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5:7b
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      ollama-model-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── 4. Analyst Agent ─────────────────────────────────────────────────────
+  analyst-agent:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: analyst-agent/Dockerfile
+    container_name: analyst-agent
+    ports:
+      - "8082:8082"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5:7b
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      ollama-model-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── 5. Host Orchestrator ─────────────────────────────────────────────────
+  host-orchestrator:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: host-orchestrator/Dockerfile
+    container_name: host-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      AGENTS_TESTER_URL: http://tester-agent:8081
+      AGENTS_ANALYST_URL: http://analyst-agent:8082
+      AGENT_PUBLIC_URL: http://host-orchestrator:8080
+      SPRING_PROFILES_ACTIVE: prod
+    volumes:
+      - orchestrator_data:/app/data
+    depends_on:
+      tester-agent:
+        condition: service_healthy
+      analyst-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── 6. a2a-ui (A2A Protocol web interface) ───────────────────────────────
+  # Clone https://github.com/a2anet/a2a-ui into ./a2a-ui before running.
+  # Configure it to point to the Host Orchestrator at http://host-orchestrator:8080.
+  #
+  # a2a-ui:
+  #   build:
+  #     context: ./a2a-ui
+  #   container_name: a2a-ui
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     NEXT_PUBLIC_A2A_DEFAULT_AGENT: http://localhost:8080
+  #   depends_on:
+  #     host-orchestrator:
+  #       condition: service_healthy
+
+volumes:
+  ollama_data:
+  orchestrator_data:

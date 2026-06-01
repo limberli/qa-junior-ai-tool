@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    # Migration path to PostgreSQL: replace url, driver-class-name, and dialect below.
+    # Add org.postgresql:postgresql to pom.xml when switching.
+    url: jdbc:h2:file:./data/agents;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ${H2_PASSWORD:}
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    limberli: INFO

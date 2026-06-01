@@ -1,0 +1,53 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: analyst-agent
+
+  # Default: Ollama via its OpenAI-compatible endpoint (/v1/chat/completions)
+  ai:
+    openai:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      api-key: ollama
+      chat:
+        options:
+          model: ${OLLAMA_MODEL:phi3:mini}
+          temperature: 0.0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: analyst-agent
+    version: 1.0.0
+    capability: risk-analysis
+
+logging:
+  level:
+    limberli: INFO
+
+---
+# Groq profile: fast cloud inference, no local Ollama needed
+spring:
+  config:
+    activate:
+      on-profile: groq
+  ai:
+    openai:
+      base-url: https://api.groq.com/openai
+      api-key: ${GROQ_API_KEY}
+      chat:
+        options:
+          model: ${GROQ_MODEL:llama-3.1-8b-instant}
+          temperature: 0.0

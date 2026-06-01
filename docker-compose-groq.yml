@@ -1,0 +1,71 @@
+version: '3.8'
+
+# Groq cloud API mode — fast inference, no local Ollama needed.
+#
+# Setup:
+#   1. Register at https://console.groq.com and get a free API key
+#   2. export GROQ_API_KEY=gsk_...
+#   3. docker compose -f docker-compose-groq.yml up --build -d
+
+services:
+  tester-agent:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: tester-agent/Dockerfile
+    container_name: tester-agent
+    ports:
+      - "8081:8081"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      SPRING_PROFILES_ACTIVE: prod,groq
+
+  analyst-agent:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: analyst-agent/Dockerfile
+    container_name: analyst-agent
+    ports:
+      - "8082:8082"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      SPRING_PROFILES_ACTIVE: prod,groq
+
+  host-orchestrator:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: host-orchestrator/Dockerfile
+    container_name: host-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      AGENTS_TESTER_URL: http://tester-agent:8081
+      AGENTS_ANALYST_URL: http://analyst-agent:8082
+      AGENT_PUBLIC_URL: http://host-orchestrator:8080
+      SPRING_PROFILES_ACTIVE: prod
+    volumes:
+      - orchestrator_data:/app/data
+    depends_on:
+      - tester-agent
+      - analyst-agent
+
+  a2a-ui:
+    image: node:22-alpine
+    container_name: a2a-ui
+    working_dir: /app
+    volumes:
+      - ./a2a-ui:/app
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && npm run build && npm start"
+    environment:
+      # UI loads this list of agent-card URLs on startup (fetched server-side via the proxy,
+      # so the in-network hostname is correct). Auto-connects the orchestrator.
+      NEXT_PUBLIC_DEFAULT_AGENT_CARDS_URL: http://host-orchestrator:8080/agent-cards.json
+    depends_on:
+      - host-orchestrator
+
+volumes:
+  orchestrator_data:
